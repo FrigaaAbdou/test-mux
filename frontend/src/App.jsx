@@ -1,20 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Video, CheckCircle, Clock, AlertCircle, Play, X, Trash2 } from 'lucide-react';
-import VideoPlayer from './components/VideoPlayer';
+import { Video, CheckCircle, Clock, AlertCircle, Play, Trash2, Plus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
-export default function VideoUploadApp() {
+export default function HomePage() {
   const [videos, setVideos] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [selectedVideo, setSelectedVideo] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const navigate = useNavigate();
 
   const API_BASE = 'http://localhost:5001';
 
-  // Fetch videos on component mount
   useEffect(() => {
     fetchVideos();
   }, []);
@@ -31,82 +25,6 @@ export default function VideoUploadApp() {
     }
   };
 
-  const handleFileSelect = (event) => {
-    const file = event.target.files[0];
-    if (file && file.type.startsWith('video/')) {
-      setSelectedFile(file);
-      if (!title) {
-        setTitle(file.name.replace(/\.[^/.]+$/, ''));
-      }
-    } else {
-      alert('Please select a valid video file');
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!selectedFile || !title) {
-      alert('Please select a file and enter a title');
-      return;
-    }
-
-    setUploading(true);
-    setUploadProgress(0);
-
-    try {
-      // Step 1: Create upload URL
-      const createResponse = await fetch(`${API_BASE}/create-upload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description })
-      });
-
-      const createData = await createResponse.json();
-      
-      if (!createData.success) {
-        throw new Error(createData.error);
-      }
-
-      // Step 2: Upload file to Mux
-      const xhr = new XMLHttpRequest();
-      
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const progress = Math.round((e.loaded / e.total) * 100);
-          setUploadProgress(progress);
-        }
-      });
-
-      xhr.onload = function() {
-        if (xhr.status === 200 || xhr.status === 201) {
-          console.log('Upload completed successfully');
-          // Reset form
-          setSelectedFile(null);
-          setTitle('');
-          setDescription('');
-          setUploadProgress(0);
-          setUploading(false);
-          // Refresh videos list
-          fetchVideos();
-        } else {
-          throw new Error('Upload failed');
-        }
-      };
-
-      xhr.onerror = function() {
-        throw new Error('Upload failed');
-      };
-
-      xhr.open('PUT', createData.data.uploadUrl);
-      xhr.send(selectedFile);
-
-    } catch (error) {
-      console.error('Upload error:', error);
-      alert('Failed to upload video: ' + error.message);
-      setUploading(false);
-      setUploadProgress(0);
-    }
-  };
-
   const getStatusIcon = (status) => {
     switch (status) {
       case 'ready':
@@ -114,7 +32,7 @@ export default function VideoUploadApp() {
       case 'processing':
         return <Clock className="w-5 h-5 text-yellow-500" />;
       case 'awaiting_upload':
-        return <Upload className="w-5 h-5 text-blue-500" />;
+        return <Video className="w-5 h-5 text-blue-500" />;
       default:
         return <AlertCircle className="w-5 h-5 text-red-500" />;
     }
@@ -133,21 +51,11 @@ export default function VideoUploadApp() {
     }
   };
 
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  // Add this function to get video thumbnail URL
   const getVideoThumbnail = (playbackId) => {
     if (!playbackId) return null;
     return `https://image.mux.com/${playbackId}/thumbnail.jpg?time=0`;
   };
 
-  // Add delete function
   const handleDelete = async (videoId) => {
     if (!window.confirm('Are you sure you want to delete this video?')) {
       return;
@@ -162,12 +70,7 @@ export default function VideoUploadApp() {
       const data = await response.json();
       
       if (data.success) {
-        // Remove video from state
         setVideos(videos.filter(v => v._id !== videoId));
-        // Close player if deleted video was selected
-        if (selectedVideo?._id === videoId) {
-          setSelectedVideo(null);
-        }
       } else {
         throw new Error(data.error);
       }
@@ -180,7 +83,7 @@ export default function VideoUploadApp() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-gray-50 py-8 relative">
       <div className="max-w-6xl mx-auto px-4">
         {/* Header */}
         <div className="text-center mb-8">
@@ -191,123 +94,6 @@ export default function VideoUploadApp() {
             Upload and manage your video content with Mux streaming
           </p>
         </div>
-
-        {/* Upload Section */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4 flex items-center">
-            <Upload className="w-5 h-5 mr-2" />
-            Upload New Video
-          </h2>
-          
-          <div className="grid md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Video File
-              </label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors">
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  id="video-upload"
-                  disabled={uploading}
-                />
-                <label 
-                  htmlFor="video-upload" 
-                  className="cursor-pointer flex flex-col items-center"
-                >
-                  <Video className="w-8 h-8 text-gray-400 mb-2" />
-                  {selectedFile ? (
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {selectedFile.name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {formatFileSize(selectedFile.size)}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">
-                      Click to select video file
-                    </p>
-                  )}
-                </label>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Title *
-                </label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter video title"
-                  disabled={uploading}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-none"
-                  placeholder="Enter video description"
-                  disabled={uploading}
-                />
-              </div>
-
-              <button
-                onClick={handleUpload}
-                disabled={!selectedFile || !title || uploading}
-                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
-                {uploading ? `Uploading... ${uploadProgress}%` : 'Upload Video'}
-              </button>
-
-              {uploading && (
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Selected Video Player */}
-        {selectedVideo && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold flex items-center">
-                <Play className="w-5 h-5 mr-2" />
-                {selectedVideo.title}
-              </h2>
-              <button
-                onClick={() => setSelectedVideo(null)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <VideoPlayer
-              playbackId={selectedVideo.muxPlaybackId}
-              title={selectedVideo.title}
-            />
-            {selectedVideo.description && (
-              <p className="mt-4 text-gray-600">{selectedVideo.description}</p>
-            )}
-          </div>
-        )}
 
         {/* Videos List */}
         <div className="bg-white rounded-lg shadow-md p-6">
@@ -320,6 +106,13 @@ export default function VideoUploadApp() {
             <div className="text-center py-8 text-gray-500">
               <Video className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>No videos uploaded yet</p>
+              <button
+                onClick={() => navigate('/upload')}
+                className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                Upload Your First Video
+              </button>
             </div>
           ) : (
             <div className="grid gap-4">
@@ -330,7 +123,12 @@ export default function VideoUploadApp() {
                 >
                   <div className="flex items-start gap-4">
                     {/* Video Thumbnail */}
-                    <div className="w-48 aspect-video bg-gray-100 rounded-md overflow-hidden flex-shrink-0">
+                    <div 
+                      onClick={() => video.status === 'ready' && navigate(`/videos/${video._id}`)}
+                      className={`w-48 aspect-video bg-gray-100 rounded-md overflow-hidden flex-shrink-0 ${
+                        video.status === 'ready' ? 'cursor-pointer hover:opacity-75' : ''
+                      }`}
+                    >
                       {video.muxPlaybackId ? (
                         <img
                           src={getVideoThumbnail(video.muxPlaybackId)}
@@ -349,7 +147,12 @@ export default function VideoUploadApp() {
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center">
                           {getStatusIcon(video.status)}
-                          <h3 className="font-medium text-gray-900 ml-2">
+                          <h3 
+                            onClick={() => video.status === 'ready' && navigate(`/videos/${video._id}`)}
+                            className={`font-medium text-gray-900 ml-2 ${
+                              video.status === 'ready' ? 'cursor-pointer hover:text-blue-600' : ''
+                            }`}
+                          >
                             {video.title}
                           </h3>
                         </div>
@@ -363,12 +166,6 @@ export default function VideoUploadApp() {
                         </button>
                       </div>
                       
-                      {video.description && (
-                        <p className="text-sm text-gray-600 mb-2">
-                          {video.description}
-                        </p>
-                      )}
-                      
                       <div className="flex items-center space-x-4 text-xs text-gray-500">
                         <span>{getStatusText(video.status)}</span>
                         {video.duration && (
@@ -377,12 +174,18 @@ export default function VideoUploadApp() {
                         <span>
                           {new Date(video.createdAt).toLocaleDateString()}
                         </span>
+                        {video.metadata?.views > 0 && (
+                          <span>{video.metadata.views} views</span>
+                        )}
+                        {video.category && (
+                          <span>{video.category}</span>
+                        )}
                       </div>
 
                       {/* Play Button */}
                       {video.status === 'ready' && video.muxPlaybackId && (
                         <button
-                          onClick={() => setSelectedVideo(video)}
+                          onClick={() => navigate(`/videos/${video._id}`)}
                           className="mt-3 inline-flex items-center px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-sm font-medium hover:bg-blue-200 transition-colors"
                         >
                           <Play className="w-4 h-4 mr-1.5" />
@@ -397,6 +200,15 @@ export default function VideoUploadApp() {
           )}
         </div>
       </div>
+
+      {/* Floating Upload Button */}
+      <button
+        onClick={() => navigate('/upload')}
+        className="fixed bottom-8 right-8 w-14 h-14 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+        title="Upload new video"
+      >
+        <Plus className="w-6 h-6" />
+      </button>
     </div>
   );
 }

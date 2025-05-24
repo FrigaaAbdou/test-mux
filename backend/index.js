@@ -48,11 +48,67 @@ const videoSchema = new mongoose.Schema({
     default: 'awaiting_upload' 
   },
   duration: Number,
+  // New fields for enhanced content
+  category: { type: String, required: true },
+  tags: [String],
+  thumbnail: {
+    url: String,
+    type: { type: String, enum: ['auto', 'custom'], default: 'auto' }
+  },
+  metadata: {
+    views: { type: Number, default: 0 },
+    likes: { type: Number, default: 0 },
+    shares: { type: Number, default: 0 }
+  },
+  visibility: { 
+    type: String, 
+    enum: ['public', 'private', 'unlisted'], 
+    default: 'public' 
+  },
+  author: {
+    name: { type: String, required: true },
+    id: { type: String, required: true }, // This would be the user ID in a real auth system
+    avatar: String
+  },
+  settings: {
+    allowComments: { type: Boolean, default: true },
+    allowRatings: { type: Boolean, default: true },
+    autoplay: { type: Boolean, default: true }
+  },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+// Comment Schema
+const commentSchema = new mongoose.Schema({
+  videoId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Video',
+    required: true 
+  },
+  author: {
+    name: { type: String, required: true },
+    id: { type: String, required: true },
+    avatar: String
+  },
+  content: { type: String, required: true },
+  likes: { type: Number, default: 0 },
+  replies: [{
+    author: {
+      name: { type: String, required: true },
+      id: { type: String, required: true },
+      avatar: String
+    },
+    content: { type: String, required: true },
+    likes: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
+  }],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
 
 const VideoModel = mongoose.model('Video', videoSchema);
+const CommentModel = mongoose.model('Comment', commentSchema);
 
 // Routes
 
@@ -69,22 +125,42 @@ app.get('/health', (req, res) => {
 app.post('/create-upload', async (req, res) => {
   let video;
   try {
-    const { title, description } = req.body;
+    const { 
+      title, 
+      description, 
+      category, 
+      tags, 
+      visibility,
+      author,
+      settings 
+    } = req.body;
 
     if (!Video?.Uploads?.create) {
       throw new Error('Mux Video.Uploads.create is not available');
     }
 
     console.log('📝 Creating upload for:', title);
-    console.log('🔑 Using Mux credentials:', {
-      tokenId: process.env.MUX_TOKEN_ID ? '✓ Present' : '✗ Missing',
-      tokenSecret: process.env.MUX_TOKEN_SECRET ? '✓ Present' : '✗ Missing'
-    });
 
     // Create video record in database
     video = new VideoModel({
       title: title || 'Untitled Video',
       description: description || '',
+      category: category || 'Uncategorized',
+      tags: tags || [],
+      visibility: visibility || 'public',
+      author: author || {
+        name: 'Anonymous',
+        id: 'anonymous',
+        avatar: null
+      },
+      settings: {
+        ...{
+          allowComments: true,
+          allowRatings: true,
+          autoplay: true
+        },
+        ...settings
+      },
       status: 'awaiting_upload'
     });
 
@@ -101,15 +177,10 @@ app.post('/create-upload', async (req, res) => {
       cors_origin: process.env.FRONTEND_URL || '*'
     });
 
-    console.log('📦 Raw Mux upload response:', JSON.stringify(upload, null, 2));
-
     if (!upload || !upload.url) {
       throw new Error('Failed to get upload URL from Mux');
     }
 
-    console.log('🔗 Mux upload created:', upload.id);
-
-    // Store upload ID for webhook handling
     video.muxUploadId = upload.id;
     await video.save();
 
@@ -126,38 +197,13 @@ app.post('/create-upload', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Create upload error:', {
-      error: error.message,
-      stack: error.stack,
-      muxState: {
-        video: !!Video,
-        uploads: !!Video?.Uploads,
-        createMethod: !!Video?.Uploads?.create
-      }
-    });
-
-    // Delete the video document if upload creation failed
-    if (video && video._id) {
-      try {
-        await VideoModel.findByIdAndDelete(video._id);
-        console.log('🗑️ Cleaned up video document due to upload creation failure');
-      } catch (cleanupError) {
-        console.error('Failed to cleanup video document:', cleanupError);
-      }
+    console.error('❌ Create upload error:', error);
+    if (video?._id) {
+      await VideoModel.findByIdAndDelete(video._id);
     }
-
     res.status(500).json({ 
       success: false,
-      error: error.message || 'Failed to create upload URL',
-      details: {
-        message: error.message,
-        type: error.name,
-        muxState: {
-          video: !!Video,
-          uploads: !!Video?.Uploads,
-          createMethod: !!Video?.Uploads?.create
-        }
-      }
+      error: error.message || 'Failed to create upload URL'
     });
   }
 });
@@ -355,6 +401,127 @@ app.post('/webhooks/mux', express.json(), async (req, res) => {
       error: 'Webhook processing failed',
       details: error.message
     });
+  }
+});
+
+// Add routes for comments
+app.post('/videos/:videoId/comments', async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const { content, author } = req.body;
+
+    const video = await VideoModel.findById(videoId);
+    if (!video) {
+      return res.status(404).json({ success: false, error: 'Video not found' });
+    }
+
+    if (!video.settings.allowComments) {
+      return res.status(403).json({ success: false, error: 'Comments are disabled for this video' });
+    }
+
+    const comment = new CommentModel({
+      videoId,
+      content,
+      author
+    });
+
+    await comment.save();
+
+    res.json({
+      success: true,
+      data: comment
+    });
+  } catch (error) {
+    console.error('❌ Create comment error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/videos/:videoId/comments', async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const comments = await CommentModel.find({ videoId })
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: comments
+    });
+  } catch (error) {
+    console.error('❌ Get comments error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Add route for video metadata updates
+app.patch('/videos/:id/metadata', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    // Fields that can be updated
+    const allowedUpdates = [
+      'title',
+      'description',
+      'category',
+      'tags',
+      'visibility',
+      'settings'
+    ];
+
+    // Filter out any fields that aren't in allowedUpdates
+    const filteredUpdates = Object.keys(updates)
+      .filter(key => allowedUpdates.includes(key))
+      .reduce((obj, key) => {
+        obj[key] = updates[key];
+        return obj;
+      }, {});
+
+    const video = await VideoModel.findByIdAndUpdate(
+      id,
+      { 
+        ...filteredUpdates,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!video) {
+      return res.status(404).json({ success: false, error: 'Video not found' });
+    }
+
+    res.json({
+      success: true,
+      data: video
+    });
+  } catch (error) {
+    console.error('❌ Update video metadata error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Add route for incrementing view count
+app.post('/videos/:id/view', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const video = await VideoModel.findByIdAndUpdate(
+      id,
+      { $inc: { 'metadata.views': 1 } },
+      { new: true }
+    );
+
+    if (!video) {
+      return res.status(404).json({ success: false, error: 'Video not found' });
+    }
+
+    res.json({
+      success: true,
+      data: video.metadata
+    });
+  } catch (error) {
+    console.error('❌ Increment view count error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
