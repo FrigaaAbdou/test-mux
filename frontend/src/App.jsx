@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom';
 export default function HomePage() {
   const [videos, setVideos] = useState([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
 
   const API_BASE = 'http://localhost:5001';
@@ -15,13 +17,22 @@ export default function HomePage() {
 
   const fetchVideos = async () => {
     try {
+      setLoading(true);
+      setError(null);
       const response = await fetch(`${API_BASE}/videos`);
       const data = await response.json();
       if (data.success) {
         setVideos(data.data);
+      } else {
+        throw new Error(data.error || 'Failed to fetch videos');
       }
     } catch (error) {
       console.error('Failed to fetch videos:', error);
+      setError(error.message);
+      // Don't let API errors break the UI
+      setVideos([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -82,6 +93,19 @@ export default function HomePage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading videos...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 relative">
       <div className="max-w-6xl mx-auto px-4">
@@ -94,6 +118,27 @@ export default function HomePage() {
             Upload and manage your video content with Mux streaming
           </p>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="flex">
+              <AlertCircle className="w-5 h-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-red-800 font-medium">Unable to connect to backend</p>
+                <p className="text-red-600 text-sm mt-1">
+                  Make sure your backend server is running on port 5001
+                </p>
+                <button
+                  onClick={fetchVideos}
+                  className="mt-2 text-red-600 hover:text-red-800 text-sm underline"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Videos List */}
         <div className="bg-white rounded-lg shadow-md p-6">
